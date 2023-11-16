@@ -1,5 +1,6 @@
 import Express from "express";
 import { Server } from "socket.io";
+import UniqueString from "unique-string";
 
 const app = Express();
 
@@ -23,7 +24,7 @@ const RoomsState = {
 
 const io = new Server(expressServer, {
   cors: {
-    origin: "http://localhost:5173",
+    origin: "*",
   },
 });
 
@@ -35,9 +36,7 @@ io.on("connection", (socket) => {
     let room = null;
 
     if (!availableRoom) {
-      const randomName = Math.floor(
-        Date.now() + Math.random() * 10000
-      ).toString();
+      const randomName = UniqueString();
       room = createNewRoom(user, randomName);
     } else {
       room = availableRoom;
@@ -46,17 +45,17 @@ io.on("connection", (socket) => {
 
     socket.join(room.name);
 
-    socket.emit(
-      "message",
-      sendMessage("sistem", `You have joined the ${room.name} chat room`)
-    );
-
     socket.broadcast
       .to(room.name)
       .emit(
         "message",
         sendMessage("sistem", `${user.name} has joined the room`)
       );
+
+    io.to(room.name).emit(
+      "available-users",
+      room.users.map((user) => user.name)
+    );
   });
 
   socket.on("message", ({ text }) => {
@@ -80,6 +79,11 @@ io.on("connection", (socket) => {
         "message",
         sendMessage("sistem", `${user.name} has left the room`)
       );
+
+      io.to(room.name).emit(
+        "available-users",
+        room.users.map((user) => user.name)
+      );
     }
   });
 });
@@ -96,6 +100,11 @@ function activeUser(id, name) {
 
 function userLeavesApp(id) {
   UsersState.setUsers(UsersState.users.filter((user) => user.id !== id));
+  RoomsState.rooms.forEach((room) => {
+    room.users = Array.from(
+      new Set(room.users.filter((user) => user.id !== id))
+    );
+  });
 }
 
 function getUser(id) {
@@ -123,7 +132,8 @@ function createNewRoom(user, roomName) {
 }
 
 function getFreeRoom() {
-  return RoomsState.rooms.find((room) => room.users.length === 1);
+  const freeRooms = RoomsState.rooms.filter((room) => room.users.length === 1);
+  return freeRooms[Math.floor(Math.random() * freeRooms.length)];
 }
 
 function getRoomByUser(userId) {
